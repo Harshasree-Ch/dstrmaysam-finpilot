@@ -1,0 +1,29 @@
+[project]
+name = "finpilot"
+version = "1.0.0"
+description = "AI-powered financial research and paper trading copilot"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3>=1.43.36",
+    "langfuse>=2.0",
+    "fastapi>=0.115",
+    "langgraph>=1.2.6",
+    "pandas>=2.2.3,<3.0.0",
+    "plotly>=6.8.0",
+    "pydantic>=2.13.4",
+    "pytest>=9.1.1",
+    "python-dotenv>=1.2.2",
+    "requests>=2.34.2",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "growwapi",
+    "streamlit>=1.58.0",
+    "uvicorn[standard]>=0.30",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120

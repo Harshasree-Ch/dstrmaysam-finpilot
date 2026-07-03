@@ -1,0 +1,32 @@
+services:
+  finpilot-api:
+    build: .
+    command: uvicorn finpilot.api:app --app-dir src --host 0.0.0.0 --port 8600
+    ports:
+      - "8600:8600"
+    environment:
+      - FINPILOT_DATA_MODE=${FINPILOT_DATA_MODE:-live}
+      - FINPILOT_MCP_TOOL_URL=${FINPILOT_MCP_TOOL_URL:-}
+      - AWS_REGION=${AWS_REGION:-eu-west-2}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-anthropic.claude-3-5-sonnet-20241022-v2:0}
+      - FINPILOT_USE_BEDROCK=${FINPILOT_USE_BEDROCK:-false}
+      - RDS_DATABASE_URL=${RDS_DATABASE_URL:-}
+      - GROWW_API_KEY=${GROWW_API_KEY:-}
+      - GROWW_SECRET_KEY=${GROWW_SECRET_KEY:-}
+      - ALPACA_API_KEY=${ALPACA_API_KEY:-}
+      - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-}
+      - ALPACA_PAPER_BASE_URL=${ALPACA_PAPER_BASE_URL:-https://paper-api.alpaca.markets}
+    restart: unless-stopped
+
+  finpilot-web:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - FINPILOT_API_URL=http://finpilot-api:8600
+      - FINPILOT_MCP_TOOL_URL=${FINPILOT_MCP_TOOL_URL:-}
+      - AWS_REGION=${AWS_REGION:-eu-west-2}
+      - RDS_DATABASE_URL=${RDS_DATABASE_URL:-}
+    depends_on:
+      - finpilot-api
+    restart: unless-stopped

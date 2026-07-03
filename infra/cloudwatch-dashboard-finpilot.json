@@ -1,0 +1,56 @@
+{
+  "widgets": [
+    {
+      "type": "log",
+      "x": 0,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "FinPilot Request Volume, Error Rate, and Latency",
+        "region": "${AWS_REGION}",
+        "query": "SOURCE '${FINPILOT_LOG_GROUP}' | fields @timestamp, event, path, status_code, latency_ms | filter event = 'finpilot_http_request' | stats count(*) as request_volume, avg(latency_ms) as avg_latency_ms, pct(latency_ms, 50) as p50_latency_ms, pct(latency_ms, 95) as p95_latency_ms, 100 * sum(if(status_code >= 400, 1, 0)) / count(*) as error_rate by bin(5m) | sort @timestamp desc",
+        "view": "table"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "FinPilot LLM Tokens, Latency, and Estimated Cost",
+        "region": "${AWS_REGION}",
+        "query": "SOURCE '${FINPILOT_LOG_GROUP}' | fields @timestamp, event, model, input_tokens, output_tokens, total_tokens, latency_ms, estimated_cost_usd | filter event = 'finpilot_llm_call' | stats sum(total_tokens) as tokens, avg(latency_ms) as avg_latency_ms, sum(estimated_cost_usd) as estimated_cost_usd by model, bin(5m) | sort @timestamp desc",
+        "view": "table"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Research Recommendations",
+        "region": "${AWS_REGION}",
+        "query": "SOURCE '${FINPILOT_LOG_GROUP}' | fields @timestamp, event, ticker, recommendation, confidence_score, suggested_allocation | filter event = 'finpilot_research_completed' | sort @timestamp desc | limit 50",
+        "view": "table"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Errors",
+        "region": "${AWS_REGION}",
+        "query": "SOURCE '${FINPILOT_LOG_GROUP}' | fields @timestamp, event, path, query, error | filter ispresent(error) and error != '' | sort @timestamp desc | limit 50",
+        "view": "table"
+      }
+    }
+  ]
+}

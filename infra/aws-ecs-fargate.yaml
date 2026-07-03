@@ -1,0 +1,403 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Tagged ECS Fargate service for FinPilot Streamlit frontend and FastAPI backend.
+
+Parameters:
+  BaseName:
+    Type: String
+    Default: dstrmaysam-finpilot
+  ProjectTag:
+    Type: String
+    Default: dstrmaysam-finpilot
+  ApplicationTag:
+    Type: String
+    Default: dstrmaysam
+  OwnerTag:
+    Type: String
+    Default: Harshasree
+  ContainerImage:
+    Type: String
+    Description: ECR image URI for the FinPilot container image.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  PublicIngressCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR allowed to access Streamlit on port 8501. Restrict this before production use.
+  DesiredCount:
+    Type: Number
+    Default: 1
+  Cpu:
+    Type: String
+    Default: "1024"
+  Memory:
+    Type: String
+    Default: "2048"
+  FinPilotMcpToolUrl:
+    Type: String
+    Default: ""
+    Description: MCP-Tools SSE URL, for example http://mcp-tools.local:9000/sse.
+  FinPilotDataMode:
+    Type: String
+    Default: production
+  FinPilotUseBedrock:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-5-sonnet-20241022-v2:0
+  FinPilotTraceEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  FinPilotLangfuseProject:
+    Type: String
+    Default: dstrmaysam-finpilot
+  FinPilotPromptVersion:
+    Type: String
+    Default: v1
+  RdsDatabaseUrlSecretArn:
+    Type: String
+    Default: ""
+    Description: Optional Secrets Manager ARN containing RDS_DATABASE_URL.
+  LangfusePublicKeySecretArn:
+    Type: String
+    Default: ""
+    Description: Optional Secrets Manager ARN containing LANGFUSE_PUBLIC_KEY.
+  LangfuseSecretKeySecretArn:
+    Type: String
+    Default: ""
+    Description: Optional Secrets Manager ARN containing LANGFUSE_SECRET_KEY.
+  FinnhubApiKeySecretArn:
+    Type: String
+    Default: ""
+  GrowwApiKeySecretArn:
+    Type: String
+    Default: ""
+  GrowwSecretKeySecretArn:
+    Type: String
+    Default: ""
+  AlpacaApiKeySecretArn:
+    Type: String
+    Default: ""
+  AlpacaSecretKeySecretArn:
+    Type: String
+    Default: ""
+
+Conditions:
+  HasRdsDatabaseUrl: !Not [!Equals [!Ref RdsDatabaseUrlSecretArn, ""]]
+  HasLangfusePublicKey: !Not [!Equals [!Ref LangfusePublicKeySecretArn, ""]]
+  HasLangfuseSecretKey: !Not [!Equals [!Ref LangfuseSecretKeySecretArn, ""]]
+  HasFinnhubApiKey: !Not [!Equals [!Ref FinnhubApiKeySecretArn, ""]]
+  HasGrowwApiKey: !Not [!Equals [!Ref GrowwApiKeySecretArn, ""]]
+  HasGrowwSecretKey: !Not [!Equals [!Ref GrowwSecretKeySecretArn, ""]]
+  HasAlpacaApiKey: !Not [!Equals [!Ref AlpacaApiKeySecretArn, ""]]
+  HasAlpacaSecretKey: !Not [!Equals [!Ref AlpacaSecretKeySecretArn, ""]]
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${BaseName}-cluster"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Application
+          Value: !Ref ApplicationTag
+        - Key: Owner
+          Value: !Ref OwnerTag
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${BaseName}"
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Application
+          Value: !Ref ApplicationTag
+        - Key: Owner
+          Value: !Ref OwnerTag
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${BaseName}-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ReadRuntimeSecrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Application
+          Value: !Ref ApplicationTag
+        - Key: Owner
+          Value: !Ref OwnerTag
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${BaseName}-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: FinPilotAppAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - secretsmanager:GetSecretValue
+                  - s3:GetObject
+                  - s3:PutObject
+                  - es:ESHttp*
+                  - aoss:APIAccessAll
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Application
+          Value: !Ref ApplicationTag
+        - Key: Owner
+          Value: !Ref OwnerTag
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: FinPilot Streamlit public access and in-task backend access.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8501
+          ToPort: 8501
+          CidrIp: !Ref PublicIngressCidr
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${BaseName}-sg"
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Application
+          Value: !Ref ApplicationTag
+        - Key: Owner
+          Value: !Ref OwnerTag
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref BaseName
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: finpilot-api
+          Image: !Ref ContainerImage
+          Essential: true
+          Command:
+            - python
+            - -m
+            - uvicorn
+            - finpilot.api:app
+            - --app-dir
+            - src
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8600"
+          PortMappings:
+            - ContainerPort: 8600
+          Environment: &CommonEnvironment
+            - Name: FINPILOT_DATA_MODE
+              Value: !Ref FinPilotDataMode
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: AWS_DEFAULT_REGION
+              Value: !Ref AWS::Region
+            - Name: FINPILOT_MCP_TOOL_URL
+              Value: !Ref FinPilotMcpToolUrl
+            - Name: FINPILOT_USE_BEDROCK
+              Value: !Ref FinPilotUseBedrock
+            - Name: BEDROCK_MODEL_ID
+              Value: !Ref BedrockModelId
+            - Name: FINPILOT_TRACE_ENABLED
+              Value: !Ref FinPilotTraceEnabled
+            - Name: FINPILOT_LANGFUSE_PROJECT
+              Value: !Ref FinPilotLangfuseProject
+            - Name: FINPILOT_PROMPT_VERSION
+              Value: !Ref FinPilotPromptVersion
+            - Name: LANGFUSE_HOST
+              Value: https://cloud.langfuse.com
+          Secrets: &CommonSecrets
+            - !If
+              - HasRdsDatabaseUrl
+              - Name: RDS_DATABASE_URL
+                ValueFrom: !Ref RdsDatabaseUrlSecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasLangfusePublicKey
+              - Name: LANGFUSE_PUBLIC_KEY
+                ValueFrom: !Ref LangfusePublicKeySecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasLangfuseSecretKey
+              - Name: LANGFUSE_SECRET_KEY
+                ValueFrom: !Ref LangfuseSecretKeySecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasFinnhubApiKey
+              - Name: FINNHUB_API_KEY
+                ValueFrom: !Ref FinnhubApiKeySecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasGrowwApiKey
+              - Name: GROWW_API_KEY
+                ValueFrom: !Ref GrowwApiKeySecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasGrowwSecretKey
+              - Name: GROWW_SECRET_KEY
+                ValueFrom: !Ref GrowwSecretKeySecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasAlpacaApiKey
+              - Name: ALPACA_API_KEY
+                ValueFrom: !Ref AlpacaApiKeySecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasAlpacaSecretKey
+              - Name: ALPACA_SECRET_KEY
+                ValueFrom: !Ref AlpacaSecretKeySecretArn
+              - !Ref AWS::NoValue
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8600/health', timeout=5)"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 30
+          LogConfiguration: &LogConfiguration
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: finpilot
+
+        - Name: finpilot-web
+          Image: !Ref ContainerImage
+          Essential: true
+          Command:
+            - streamlit
+            - run
+            - app.py
+            - --server.address=0.0.0.0
+            - --server.port=8501
+          PortMappings:
+            - ContainerPort: 8501
+          Environment:
+            - Name: FINPILOT_DATA_MODE
+              Value: !Ref FinPilotDataMode
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: AWS_DEFAULT_REGION
+              Value: !Ref AWS::Region
+            - Name: FINPILOT_MCP_TOOL_URL
+              Value: !Ref FinPilotMcpToolUrl
+            - Name: FINPILOT_USE_BEDROCK
+              Value: !Ref FinPilotUseBedrock
+            - Name: BEDROCK_MODEL_ID
+              Value: !Ref BedrockModelId
+            - Name: FINPILOT_TRACE_ENABLED
+              Value: !Ref FinPilotTraceEnabled
+            - Name: FINPILOT_LANGFUSE_PROJECT
+              Value: !Ref FinPilotLangfuseProject
+            - Name: FINPILOT_PROMPT_VERSION
+              Value: !Ref FinPilotPromptVersion
+            - Name: LANGFUSE_HOST
+              Value: https://cloud.langfuse.com
+            - Name: FINPILOT_API_URL
+              Value: http://127.0.0.1:8600
+          Secrets: *CommonSecrets
+          DependsOn:
+            - ContainerName: finpilot-api
+              Condition: HEALTHY
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=5)"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration: *LogConfiguration
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Application
+          Value: !Ref ApplicationTag
+        - Key: Owner
+          Value: !Ref OwnerTag
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${BaseName}-service"
+      Cluster: !Ref Cluster
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      TaskDefinition: !Ref TaskDefinition
+      EnableExecuteCommand: true
+      PropagateTags: SERVICE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups: [!Ref SecurityGroup]
+          Subnets: !Ref SubnetIds
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Application
+          Value: !Ref ApplicationTag
+        - Key: Owner
+          Value: !Ref OwnerTag
+
+Outputs:
+  ClusterName:
+    Value: !Ref Cluster
+  ServiceName:
+    Value: !Sub "${BaseName}-service"
+  TaskDefinitionArn:
+    Value: !Ref TaskDefinition
+  SecurityGroupId:
+    Value: !Ref SecurityGroup
+  StreamlitUrlHint:
+    Value: !Sub "Open port 8501 on the task public IP. Restrict PublicIngressCidr before production."
