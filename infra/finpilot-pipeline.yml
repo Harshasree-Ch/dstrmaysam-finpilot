@@ -206,16 +206,20 @@ Resources:
               - Sid: EcsDeploy
                 Effect: Allow
                 Action:
+                  - ecs:DescribeClusters
                   - ecs:DescribeServices
                   - ecs:DescribeTaskDefinition
                   - ecs:DescribeTasks
+                  - ecs:ListServices
                   - ecs:ListTasks
                   - ecs:RegisterTaskDefinition
+                  - ecs:TagResource
                   - ecs:UpdateService
                 Resource: "*"
               - Sid: PassEcsTaskRoles
                 Effect: Allow
                 Action:
+                  - iam:GetRole
                   - iam:PassRole
                 Resource: "*"
       Tags:
