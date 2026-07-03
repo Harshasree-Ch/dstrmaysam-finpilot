@@ -14,6 +14,10 @@ Parameters:
   OwnerTag:
     Type: String
     Default: Harshasree
+  PipelineName:
+    Type: String
+    Default: dstrmaysam-finpilot
+    Description: Exact AWS CodePipeline name to create.
   CodeStarConnectionArn:
     Type: String
     Description: CodeStar Connections ARN for the FinPilot GitHub repository.
@@ -225,7 +229,7 @@ Resources:
   Pipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: !Sub "${BaseName}-pipeline"
+      Name: !Ref PipelineName
       RoleArn: !GetAtt CodePipelineServiceRole.Arn
       ArtifactStore:
         Type: S3

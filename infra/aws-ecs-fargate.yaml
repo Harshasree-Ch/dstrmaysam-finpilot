@@ -58,6 +58,10 @@ Parameters:
   FinPilotPromptVersion:
     Type: String
     Default: v1
+  AppConfigSecretArn:
+    Type: String
+    Default: ""
+    Description: Optional combined JSON secret ARN containing FinPilot runtime keys.
   RdsDatabaseUrlSecretArn:
     Type: String
     Default: ""
@@ -87,6 +91,7 @@ Parameters:
     Default: ""
 
 Conditions:
+  HasAppConfigSecret: !Not [!Equals [!Ref AppConfigSecretArn, ""]]
   HasRdsDatabaseUrl: !Not [!Equals [!Ref RdsDatabaseUrlSecretArn, ""]]
   HasLangfusePublicKey: !Not [!Equals [!Ref LangfusePublicKeySecretArn, ""]]
   HasLangfuseSecretKey: !Not [!Equals [!Ref LangfuseSecretKeySecretArn, ""]]
@@ -235,7 +240,7 @@ Resources:
             - "8600"
           PortMappings:
             - ContainerPort: 8600
-          Environment: &CommonEnvironment
+          Environment:
             - Name: FINPILOT_DATA_MODE
               Value: !Ref FinPilotDataMode
             - Name: AWS_REGION
@@ -256,46 +261,83 @@ Resources:
               Value: !Ref FinPilotPromptVersion
             - Name: LANGFUSE_HOST
               Value: https://cloud.langfuse.com
-          Secrets: &CommonSecrets
+          Secrets:
             - !If
-              - HasRdsDatabaseUrl
+              - HasAppConfigSecret
               - Name: RDS_DATABASE_URL
-                ValueFrom: !Ref RdsDatabaseUrlSecretArn
-              - !Ref AWS::NoValue
+                ValueFrom: !Sub "${AppConfigSecretArn}:RDS_DATABASE_URL::"
+              - !If
+                - HasRdsDatabaseUrl
+                - Name: RDS_DATABASE_URL
+                  ValueFrom: !Ref RdsDatabaseUrlSecretArn
+                - !Ref AWS::NoValue
             - !If
-              - HasLangfusePublicKey
+              - HasAppConfigSecret
               - Name: LANGFUSE_PUBLIC_KEY
-                ValueFrom: !Ref LangfusePublicKeySecretArn
-              - !Ref AWS::NoValue
+                ValueFrom: !Sub "${AppConfigSecretArn}:LANGFUSE_PUBLIC_KEY::"
+              - !If
+                - HasLangfusePublicKey
+                - Name: LANGFUSE_PUBLIC_KEY
+                  ValueFrom: !Ref LangfusePublicKeySecretArn
+                - !Ref AWS::NoValue
             - !If
-              - HasLangfuseSecretKey
+              - HasAppConfigSecret
               - Name: LANGFUSE_SECRET_KEY
-                ValueFrom: !Ref LangfuseSecretKeySecretArn
-              - !Ref AWS::NoValue
+                ValueFrom: !Sub "${AppConfigSecretArn}:LANGFUSE_SECRET_KEY::"
+              - !If
+                - HasLangfuseSecretKey
+                - Name: LANGFUSE_SECRET_KEY
+                  ValueFrom: !Ref LangfuseSecretKeySecretArn
+                - !Ref AWS::NoValue
             - !If
-              - HasFinnhubApiKey
+              - HasAppConfigSecret
               - Name: FINNHUB_API_KEY
-                ValueFrom: !Ref FinnhubApiKeySecretArn
-              - !Ref AWS::NoValue
+                ValueFrom: !Sub "${AppConfigSecretArn}:FINNHUB_API_KEY::"
+              - !If
+                - HasFinnhubApiKey
+                - Name: FINNHUB_API_KEY
+                  ValueFrom: !Ref FinnhubApiKeySecretArn
+                - !Ref AWS::NoValue
             - !If
-              - HasGrowwApiKey
+              - HasAppConfigSecret
               - Name: GROWW_API_KEY
-                ValueFrom: !Ref GrowwApiKeySecretArn
-              - !Ref AWS::NoValue
+                ValueFrom: !Sub "${AppConfigSecretArn}:GROWW_API_KEY::"
+              - !If
+                - HasGrowwApiKey
+                - Name: GROWW_API_KEY
+                  ValueFrom: !Ref GrowwApiKeySecretArn
+                - !Ref AWS::NoValue
             - !If
-              - HasGrowwSecretKey
+              - HasAppConfigSecret
               - Name: GROWW_SECRET_KEY
-                ValueFrom: !Ref GrowwSecretKeySecretArn
-              - !Ref AWS::NoValue
+                ValueFrom: !Sub "${AppConfigSecretArn}:GROWW_SECRET_KEY::"
+              - !If
+                - HasGrowwSecretKey
+                - Name: GROWW_SECRET_KEY
+                  ValueFrom: !Ref GrowwSecretKeySecretArn
+                - !Ref AWS::NoValue
             - !If
-              - HasAlpacaApiKey
+              - HasAppConfigSecret
               - Name: ALPACA_API_KEY
-                ValueFrom: !Ref AlpacaApiKeySecretArn
-              - !Ref AWS::NoValue
+                ValueFrom: !Sub "${AppConfigSecretArn}:ALPACA_API_KEY::"
+              - !If
+                - HasAlpacaApiKey
+                - Name: ALPACA_API_KEY
+                  ValueFrom: !Ref AlpacaApiKeySecretArn
+                - !Ref AWS::NoValue
             - !If
-              - HasAlpacaSecretKey
+              - HasAppConfigSecret
               - Name: ALPACA_SECRET_KEY
-                ValueFrom: !Ref AlpacaSecretKeySecretArn
+                ValueFrom: !Sub "${AppConfigSecretArn}:ALPACA_SECRET_KEY::"
+              - !If
+                - HasAlpacaSecretKey
+                - Name: ALPACA_SECRET_KEY
+                  ValueFrom: !Ref AlpacaSecretKeySecretArn
+                - !Ref AWS::NoValue
+            - !If
+              - HasAppConfigSecret
+              - Name: ALPACA_PAPER_BASE_URL
+                ValueFrom: !Sub "${AppConfigSecretArn}:ALPACA_PAPER_BASE_URL::"
               - !Ref AWS::NoValue
           HealthCheck:
             Command:
@@ -305,7 +347,7 @@ Resources:
             Timeout: 10
             Retries: 3
             StartPeriod: 30
-          LogConfiguration: &LogConfiguration
+          LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref LogGroup
@@ -346,7 +388,84 @@ Resources:
               Value: https://cloud.langfuse.com
             - Name: FINPILOT_API_URL
               Value: http://127.0.0.1:8600
-          Secrets: *CommonSecrets
+          Secrets:
+            - !If
+              - HasAppConfigSecret
+              - Name: RDS_DATABASE_URL
+                ValueFrom: !Sub "${AppConfigSecretArn}:RDS_DATABASE_URL::"
+              - !If
+                - HasRdsDatabaseUrl
+                - Name: RDS_DATABASE_URL
+                  ValueFrom: !Ref RdsDatabaseUrlSecretArn
+                - !Ref AWS::NoValue
+            - !If
+              - HasAppConfigSecret
+              - Name: LANGFUSE_PUBLIC_KEY
+                ValueFrom: !Sub "${AppConfigSecretArn}:LANGFUSE_PUBLIC_KEY::"
+              - !If
+                - HasLangfusePublicKey
+                - Name: LANGFUSE_PUBLIC_KEY
+                  ValueFrom: !Ref LangfusePublicKeySecretArn
+                - !Ref AWS::NoValue
+            - !If
+              - HasAppConfigSecret
+              - Name: LANGFUSE_SECRET_KEY
+                ValueFrom: !Sub "${AppConfigSecretArn}:LANGFUSE_SECRET_KEY::"
+              - !If
+                - HasLangfuseSecretKey
+                - Name: LANGFUSE_SECRET_KEY
+                  ValueFrom: !Ref LangfuseSecretKeySecretArn
+                - !Ref AWS::NoValue
+            - !If
+              - HasAppConfigSecret
+              - Name: FINNHUB_API_KEY
+                ValueFrom: !Sub "${AppConfigSecretArn}:FINNHUB_API_KEY::"
+              - !If
+                - HasFinnhubApiKey
+                - Name: FINNHUB_API_KEY
+                  ValueFrom: !Ref FinnhubApiKeySecretArn
+                - !Ref AWS::NoValue
+            - !If
+              - HasAppConfigSecret
+              - Name: GROWW_API_KEY
+                ValueFrom: !Sub "${AppConfigSecretArn}:GROWW_API_KEY::"
+              - !If
+                - HasGrowwApiKey
+                - Name: GROWW_API_KEY
+                  ValueFrom: !Ref GrowwApiKeySecretArn
+                - !Ref AWS::NoValue
+            - !If
+              - HasAppConfigSecret
+              - Name: GROWW_SECRET_KEY
+                ValueFrom: !Sub "${AppConfigSecretArn}:GROWW_SECRET_KEY::"
+              - !If
+                - HasGrowwSecretKey
+                - Name: GROWW_SECRET_KEY
+                  ValueFrom: !Ref GrowwSecretKeySecretArn
+                - !Ref AWS::NoValue
+            - !If
+              - HasAppConfigSecret
+              - Name: ALPACA_API_KEY
+                ValueFrom: !Sub "${AppConfigSecretArn}:ALPACA_API_KEY::"
+              - !If
+                - HasAlpacaApiKey
+                - Name: ALPACA_API_KEY
+                  ValueFrom: !Ref AlpacaApiKeySecretArn
+                - !Ref AWS::NoValue
+            - !If
+              - HasAppConfigSecret
+              - Name: ALPACA_SECRET_KEY
+                ValueFrom: !Sub "${AppConfigSecretArn}:ALPACA_SECRET_KEY::"
+              - !If
+                - HasAlpacaSecretKey
+                - Name: ALPACA_SECRET_KEY
+                  ValueFrom: !Ref AlpacaSecretKeySecretArn
+                - !Ref AWS::NoValue
+            - !If
+              - HasAppConfigSecret
+              - Name: ALPACA_PAPER_BASE_URL
+                ValueFrom: !Sub "${AppConfigSecretArn}:ALPACA_PAPER_BASE_URL::"
+              - !Ref AWS::NoValue
           DependsOn:
             - ContainerName: finpilot-api
               Condition: HEALTHY
@@ -358,7 +477,12 @@ Resources:
             Timeout: 10
             Retries: 3
             StartPeriod: 60
-          LogConfiguration: *LogConfiguration
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: finpilot
       Tags:
         - Key: Project
           Value: !Ref ProjectTag

@@ -9,6 +9,7 @@ def test_company_fallback_enriches_sparse_indian_profile(monkeypatch):
     monkeypatch.setattr(client, "_quote_result", lambda ticker: {"longName": "Reliance Industries Limited"})
     monkeypatch.setattr(client, "_quote_summary", lambda ticker, modules=None: {})
     monkeypatch.setattr(client, "_stockanalysis_profile", lambda ticker: {})
+    monkeypatch.setattr(client, "_screener_profile", lambda ticker: {})
     monkeypatch.setattr(
         client,
         "quote",
@@ -37,6 +38,7 @@ def test_company_fallback_enriches_sparse_indian_bank_profile(monkeypatch):
     monkeypatch.setattr(client, "_quote_result", lambda ticker: {"longName": "State Bank of India"})
     monkeypatch.setattr(client, "_quote_summary", lambda ticker, modules=None: {})
     monkeypatch.setattr(client, "_stockanalysis_profile", lambda ticker: {})
+    monkeypatch.setattr(client, "_screener_profile", lambda ticker: {})
     monkeypatch.setattr(
         client,
         "quote",
@@ -65,6 +67,7 @@ def test_company_fallback_includes_employee_count_for_tcs(monkeypatch):
     monkeypatch.setattr(client, "_quote_result", lambda ticker: {"longName": "Tata Consultancy Services Limited"})
     monkeypatch.setattr(client, "_quote_summary", lambda ticker, modules=None: {})
     monkeypatch.setattr(client, "_stockanalysis_profile", lambda ticker: {})
+    monkeypatch.setattr(client, "_screener_profile", lambda ticker: {})
     monkeypatch.setattr(
         client,
         "quote",
