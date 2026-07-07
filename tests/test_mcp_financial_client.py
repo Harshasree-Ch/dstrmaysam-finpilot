@@ -167,6 +167,36 @@ def test_mcp_client_search_documents_uses_mcp_rag_tool(monkeypatch):
     ]
 
 
+def test_mcp_client_search_documents_falls_back_to_s3_methodology_pdf(monkeypatch):
+    client = McpFinancialToolsClient(Settings(mcp_tool_url="http://localhost:8000/sse", rag_s3_bucket="dstrmaysam-finpilot"))
+    monkeypatch.setattr(client, "_call", lambda tool, payload: {"ok": True, "evidence": []})
+    monkeypatch.setattr(
+        client,
+        "_read_s3_pdf_text",
+        lambda key: (
+            "Recommendation Mapping: scores from 55 to 74 map to Hold. "
+            "Watch is used when the score is lower but evidence is not negative. "
+            "Confidence Calculation uses data coverage, source agreement, signal strength, and penalties."
+        ),
+    )
+
+    documents = client.search_documents("how are calculating score to predict recommendation signal")
+
+    assert documents == [
+        {
+            "source": "s3://dstrmaysam-finpilot/finpilot_scoring_and_recommendation_rules.pdf",
+            "title": "FinPilot Scoring and Recommendation Rules",
+            "excerpt": (
+                "Recommendation Mapping: scores from 55 to 74 map to Hold. Watch is used when the score is lower "
+                "but evidence is not negative. Confidence Calculation uses data coverage, source agreement, signal "
+                "strength, and penalties."
+            ),
+            "url": "s3://dstrmaysam-finpilot/finpilot_scoring_and_recommendation_rules.pdf",
+            "reliability": "high",
+        }
+    ]
+
+
 def test_mcp_client_price_history_includes_ui_fields(monkeypatch):
     calls = []
     lines = [

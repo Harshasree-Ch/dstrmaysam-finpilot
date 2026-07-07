@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from io import BytesIO
 from typing import Any
 from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 
+import boto3
 import requests
 
 from finpilot.core.settings import Settings
@@ -178,18 +180,18 @@ class McpFinancialToolsClient:
         try:
             body = self._call("finpilot_rag_search_documents", {"query": query, "limit": 5})
         except Exception:
-            return []
+            return self._search_s3_methodology_documents(query)
         if isinstance(body, str):
             body = json.loads(body)
         if not isinstance(body, dict):
-            return []
+            return self._search_s3_methodology_documents(query)
         if body.get("ok") is False:
-            return []
+            return self._search_s3_methodology_documents(query)
         evidence = body.get("evidence")
         if isinstance(evidence, list):
-            return evidence
+            return evidence or self._search_s3_methodology_documents(query)
         data = body.get("data") if isinstance(body.get("data"), dict) else {}
-        return [
+        documents = [
             {
                 "source": match.get("source") or "FinPilot RAG",
                 "title": match.get("title") or "Retrieved document chunk",
@@ -200,6 +202,71 @@ class McpFinancialToolsClient:
             for match in data.get("matches", [])
             if isinstance(match, dict)
         ]
+        return documents or self._search_s3_methodology_documents(query)
+
+    def _search_s3_methodology_documents(self, query: str) -> list[dict[str, Any]]:
+        if not self._looks_like_methodology_query(query):
+            return []
+        key = "finpilot_scoring_and_recommendation_rules.pdf"
+        text = self._read_s3_pdf_text(key)
+        if not text:
+            return []
+        excerpt = self._best_excerpt(text, query)
+        return [
+            {
+                "source": f"s3://{self.settings.rag_s3_bucket}/{key}",
+                "title": "FinPilot Scoring and Recommendation Rules",
+                "excerpt": excerpt,
+                "url": f"s3://{self.settings.rag_s3_bucket}/{key}",
+                "reliability": "high",
+            }
+        ]
+
+    def _read_s3_pdf_text(self, key: str) -> str:
+        try:
+            response = boto3.client("s3", region_name=self.settings.aws_region).get_object(
+                Bucket=self.settings.rag_s3_bucket,
+                Key=key,
+            )
+            payload = response["Body"].read()
+            from pypdf import PdfReader
+
+            reader = PdfReader(BytesIO(payload))
+            return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+        except Exception:
+            return ""
+
+    def _looks_like_methodology_query(self, query: str) -> bool:
+        lowered = query.lower()
+        return any(
+            term in lowered
+            for term in (
+                "recommend",
+                "recommendation",
+                "score",
+                "scoring",
+                "signal",
+                "confidence",
+                "allocation",
+                "watch",
+                "hold",
+                "buy",
+                "sell",
+                "accumulate",
+                "reduce",
+            )
+        )
+
+    def _best_excerpt(self, text: str, query: str, max_chars: int = 900) -> str:
+        terms = {term for term in query.lower().replace(",", " ").split() if len(term) > 3}
+        paragraphs = [part.strip() for part in text.split("\n") if part.strip()]
+        ranked = sorted(
+            paragraphs,
+            key=lambda paragraph: sum(1 for term in terms if term in paragraph.lower()),
+            reverse=True,
+        )
+        excerpt = " ".join(ranked[:4] or paragraphs[:4])
+        return excerpt[:max_chars].strip()
 
     def market_snapshot(self, ticker: str) -> dict[str, Any]:
         try:

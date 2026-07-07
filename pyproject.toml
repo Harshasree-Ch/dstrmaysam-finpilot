@@ -5,6 +5,7 @@ description = "AI-powered financial research and paper trading copilot"
 requires-python = ">=3.11"
 dependencies = [
     "boto3>=1.43.36",
+    "pypdf>=4.3",
     "langfuse>=2.0",
     "fastapi>=0.115",
     "langgraph>=1.2.6",

@@ -25,6 +25,7 @@ class Settings:
     finnhub_api_key: str | None = None
     rds_database_url: str | None = None
     mcp_tool_url: str | None = None
+    rag_s3_bucket: str = "dstrmaysam-finpilot"
     finpilot_api_url: str | None = None
     trace_enabled: bool = False
     langfuse_public_key: str | None = None
@@ -52,6 +53,7 @@ class Settings:
             finnhub_api_key=os.getenv("FINNHUB_API_KEY") or None,
             rds_database_url=os.getenv("RDS_DATABASE_URL") or None,
             mcp_tool_url=os.getenv("FINPILOT_MCP_TOOL_URL") or os.getenv("MCP_TOOL_URL") or None,
+            rag_s3_bucket=os.getenv("FINPILOT_RAG_S3_BUCKET", cls.rag_s3_bucket),
             finpilot_api_url=os.getenv("FINPILOT_API_URL") or None,
             trace_enabled=os.getenv("FINPILOT_TRACE_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY") or None,
