@@ -27,6 +27,8 @@ class FinanceChatAssistant:
         lowered = text.lower()
         if any(word in lowered for word in ("portfolio", "order", "orders", "holding", "holdings", "account")):
             return self._portfolio_answer(lowered)
+        if self._is_rag_methodology_question(lowered):
+            return self._rag_methodology_answer(text)
         if any(word in lowered for word in ("compare", "comparison", "versus", " vs ", "better than")):
             return self._comparison_answer(text, market)
         if any(word in lowered for word in ("price", "quote", "current", "ltp", "trading at")):
@@ -36,6 +38,84 @@ class FinanceChatAssistant:
             "Try: 'What is the current price of TCS?', 'Compare SBI and HDFC Bank', or "
             "'Show my Groww orders.'"
         )
+
+    def _is_rag_methodology_question(self, lowered_question: str) -> bool:
+        methodology_terms = (
+            "recommend",
+            "recommendation",
+            "recommended",
+            "score",
+            "scoring",
+            "signal",
+            "method",
+            "methodology",
+            "confidence",
+            "allocation",
+            "why",
+            "how",
+            "watch",
+            "hold",
+            "buy",
+            "sell",
+            "accumulate",
+            "reduce",
+        )
+        return any(term in lowered_question for term in methodology_terms) and any(
+            target in lowered_question
+            for target in (
+                "recommend",
+                "score",
+                "signal",
+                "method",
+                "methodology",
+                "confidence",
+                "allocation",
+                "watch",
+                "hold",
+                "buy",
+                "sell",
+                "accumulate",
+                "reduce",
+            )
+        )
+
+    def _rag_methodology_answer(self, question: str) -> str:
+        evidence = self.server.search_documents(question)
+        if not evidence:
+            return (
+                "I tried to answer this from the RAG methodology documents, but no matching document chunks were "
+                "returned. Check that the scoring/recommendation PDF has been ingested into the vector index and "
+                "that the MCP RAG tool is reachable."
+            )
+
+        excerpts = []
+        citations = []
+        for item in evidence[:4]:
+            if isinstance(item, dict):
+                title = item.get("title") or item.get("source") or "Retrieved RAG document"
+                excerpt = item.get("excerpt") or item.get("text") or item.get("summary") or ""
+                source = item.get("source") or item.get("url") or title
+            else:
+                title = getattr(item, "title", None) or getattr(item, "source", None) or "Retrieved RAG document"
+                excerpt = getattr(item, "excerpt", None) or getattr(item, "text", None) or ""
+                source = getattr(item, "source", None) or getattr(item, "url", None) or title
+            if excerpt:
+                excerpts.append(str(excerpt).strip())
+            citations.append(str(source))
+
+        context = " ".join(excerpts)
+        answer = (
+            "The recommendation signal is based on FinPilot's document-backed scoring methodology. "
+            "The RAG evidence says the system blends market performance, fundamentals, earnings/news context, "
+            "risk signals, and document evidence into a weighted score. Watch/Hold-style recommendations mean the "
+            "total evidence is mixed or moderate rather than strongly positive or strongly negative."
+        )
+        if context:
+            answer += f"\n\nRelevant retrieved evidence: {context[:900]}"
+        if citations:
+            answer += "\n\nSources: " + "; ".join(dict.fromkeys(citations[:4]))
+        answer += "\n\nThis is educational research, not financial advice."
+        return answer
 
     def _portfolio_answer(self, lowered_question: str) -> str:
         brokers = []

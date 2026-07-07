@@ -4,6 +4,9 @@ from finpilot.core.settings import Settings
 
 
 class FakeServer:
+    def __init__(self):
+        self.document_queries = []
+
     def market_snapshot(self, ticker):
         prices = {
             "TCS.NS": {"price": 3900.0, "currency": "INR", "change_percent": 0.012, "exchange": "NSE"},
@@ -31,6 +34,19 @@ class FakeServer:
             },
         }
         return profiles[ticker]
+
+    def search_documents(self, query):
+        self.document_queries.append(query)
+        return [
+            {
+                "title": "FinPilot Scoring and Recommendation Rules",
+                "source": "s3://finpilot-rag/raw/scoring/finpilot_scoring_and_recommendation_rules.pdf",
+                "excerpt": (
+                    "Recommendation Mapping: scores from 55 to 74 map to Hold when evidence is mixed. "
+                    "Confidence Calculation uses data coverage, source agreement, signal strength, and penalties."
+                ),
+            }
+        ]
 
 
 class FakeTradingAgent:
@@ -76,6 +92,40 @@ def test_chat_summarizes_configured_portfolio_orders():
     assert "Groww: 2 order(s)" in answer
     assert "EXECUTED: 1" in answer
     assert "SUBMITTED: 1" in answer
+
+
+def test_chat_routes_recommendation_rationale_to_rag():
+    server = FakeServer()
+    assistant = FinanceChatAssistant(server, FakeTradingAgent(), Settings())
+
+    answer = assistant.answer("how are you recommending hold for sbi?", market="India")
+
+    assert server.document_queries == ["how are you recommending hold for sbi?"]
+    assert "document-backed scoring methodology" in answer
+    assert "scores from 55 to 74 map to Hold" in answer
+    assert "Sources:" in answer
+
+
+def test_chat_routes_recommendation_signal_wording_to_rag():
+    server = FakeServer()
+    assistant = FinanceChatAssistant(server, FakeTradingAgent(), Settings())
+
+    answer = assistant.answer("how are calculating score to predict recommendation signal", market="India")
+
+    assert server.document_queries == ["how are calculating score to predict recommendation signal"]
+    assert "recommendation signal" in answer
+    assert "RAG evidence" in answer
+
+
+def test_chat_routes_watch_hold_signal_wording_to_rag():
+    server = FakeServer()
+    assistant = FinanceChatAssistant(server, FakeTradingAgent(), Settings())
+
+    answer = assistant.answer("how are recommending research signal as watch,hold", market="India")
+
+    assert server.document_queries == ["how are recommending research signal as watch,hold"]
+    assert "Watch/Hold-style" in answer
+    assert "Sources:" in answer
 
 
 def test_in_memory_chat_store_round_trip():
