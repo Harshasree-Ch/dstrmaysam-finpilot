@@ -48,6 +48,15 @@ def is_local_api_url(api_url: str) -> bool:
     return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
 
 
+def is_managed_cloud_runtime() -> bool:
+    return bool(
+        os.getenv("ECS_CONTAINER_METADATA_URI")
+        or os.getenv("ECS_CONTAINER_METADATA_URI_V4")
+        or os.getenv("AWS_EXECUTION_ENV")
+        or os.getenv("FINPILOT_DISABLE_BACKEND_AUTOSTART", "").lower() in {"1", "true", "yes", "on"}
+    )
+
+
 def api_health(api_url: str, timeout: float = 1.0) -> dict | None:
     try:
         response = requests.get(f"{api_url.rstrip('/')}/health", timeout=timeout)
@@ -184,7 +193,16 @@ settings_payload = {
 settings_fields = {field.name for field in fields(Settings)}
 settings = Settings(**{key: value for key, value in settings_payload.items() if key in settings_fields})
 requested_finpilot_api_url = settings_payload["finpilot_api_url"] or "http://localhost:8600"
-backend_status = ensure_local_fastapi_backend(requested_finpilot_api_url, REQUIRED_BACKEND_VERSION)
+if is_managed_cloud_runtime() and is_local_api_url(requested_finpilot_api_url):
+    backend_status = {
+        "api_url": requested_finpilot_api_url,
+        "managed": False,
+        "status": "already_running"
+        if backend_is_current(requested_finpilot_api_url, timeout=2.0)
+        else "backend_unavailable",
+    }
+else:
+    backend_status = ensure_local_fastapi_backend(requested_finpilot_api_url, REQUIRED_BACKEND_VERSION)
 finpilot_api_url = backend_status.get("api_url", requested_finpilot_api_url)
 
 st.title("FinPilot")
@@ -195,6 +213,11 @@ if backend_status["status"] in {"failed", "timeout"}:
         "FinPilot FastAPI backend could not be started automatically. "
         "Stop Streamlit and run `streamlit run app.py` again."
         + log_hint
+    )
+elif backend_status["status"] == "backend_unavailable":
+    st.warning(
+        "FinPilot API is still starting or temporarily unavailable. "
+        "Refresh the page in a moment if a workflow cannot reach the backend."
     )
 
 with st.sidebar:
