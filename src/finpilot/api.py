@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import fields
 from typing import Any, Literal
@@ -12,7 +13,13 @@ from finpilot.agents.trading import TradingAgent
 from finpilot.chat import FinanceChatAssistant
 from finpilot.core.models import TradeIntent
 from finpilot.core.settings import Settings
-from finpilot.observability import ObservabilityMiddleware, configure_logging, log_event, metrics_registry
+from finpilot.observability import (
+    ObservabilityMiddleware,
+    configure_logging,
+    log_event,
+    metrics_registry,
+    publish_metrics_to_langfuse,
+)
 from finpilot.tracing import FinPilotTracer
 from finpilot.trading.paper import PaperTradingService
 from finpilot_mcp.client import McpFinancialToolsClient
@@ -22,7 +29,7 @@ from finpilot_mcp.server import FinancialIntelligenceServer
 configure_logging()
 app = FastAPI(title="FinPilot API", version="1.0.0")
 app.add_middleware(ObservabilityMiddleware)
-BACKEND_VERSION = 3
+BACKEND_VERSION = 4
 
 
 class RuntimeCredentials(BaseModel):
@@ -96,6 +103,7 @@ def _settings(credentials: RuntimeCredentials | None = None) -> Settings:
         "finnhub_api_key": base.finnhub_api_key,
         "rds_database_url": base.rds_database_url,
         "mcp_tool_url": base.mcp_tool_url,
+        "rag_s3_bucket": getattr(base, "rag_s3_bucket", "dstrmaysam-finpilot"),
         "finpilot_api_url": getattr(base, "finpilot_api_url", os.getenv("FINPILOT_API_URL") or None),
         "trace_enabled": base.trace_enabled,
         "langfuse_public_key": base.langfuse_public_key,
@@ -103,6 +111,8 @@ def _settings(credentials: RuntimeCredentials | None = None) -> Settings:
         "langfuse_host": base.langfuse_host,
         "langfuse_project": base.langfuse_project,
         "prompt_version": base.prompt_version,
+        "llm_input_cost_per_1k_usd": base.llm_input_cost_per_1k_usd,
+        "llm_output_cost_per_1k_usd": base.llm_output_cost_per_1k_usd,
     }
     settings_fields = {field.name for field in fields(Settings)}
     return Settings(**{key: value for key, value in payload.items() if key in settings_fields})
@@ -123,7 +133,30 @@ def health() -> dict[str, Any]:
 
 @app.get("/observability/metrics")
 def observability_metrics() -> dict[str, Any]:
-    return {"ok": True, "data": metrics_registry.snapshot()}
+    snapshot = metrics_registry.snapshot()
+    publish_metrics_to_langfuse(_settings(), snapshot)
+    return {"ok": True, "message": "Observability metrics were published to Langfuse.", "data": snapshot}
+
+
+@app.post("/observability/publish-quality-scores")
+def publish_quality_scores() -> dict[str, Any]:
+    try:
+        from finpilot.evaluation.runner import run_quality_evaluation
+
+        report = run_quality_evaluation(publish_langfuse=True)
+        payload = report.output_json.read_text(encoding="utf-8")
+        data = json.loads(payload)
+        return {
+            "ok": True,
+            "message": "Quality scores were published to Langfuse.",
+            "data": {
+                "example_count": data["example_count"],
+                "summary": data["summary"],
+                "generated_at": data["generated_at"],
+            },
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/research/run")

@@ -115,23 +115,24 @@ class FinPilotTracer:
         latency_ms: float,
         cost_details: dict[str, float] | None = None,
         metadata: dict[str, Any] | None = None,
+        prompt_client: Any = None,
+        version: str | None = None,
     ) -> None:
         client = self.client()
+        usage_details = self._usage_details(usage)
+        normalized_cost_details = self._cost_details(cost_details)
         if client is not None and hasattr(client, "start_as_current_observation"):
             try:
-                usage_details = {
-                    key: int(value)
-                    for key, value in (usage or {}).items()
-                    if isinstance(value, int | float) and value is not None
-                }
                 with client.start_as_current_observation(
                     name=name,
                     as_type="generation",
                     input=prompt,
                     output=completion,
                     model=model,
+                    version=version or self.settings.prompt_version,
                     usage_details=usage_details or None,
-                    cost_details=cost_details,
+                    cost_details=normalized_cost_details,
+                    prompt=prompt_client,
                     metadata=self._metadata({**(metadata or {}), "latency_ms": round(latency_ms, 2)}),
                     end_on_exit=True,
                 ):
@@ -146,11 +147,45 @@ class FinPilotTracer:
                 name=name,
                 model=model,
                 input=prompt,
+                version=version or self.settings.prompt_version,
                 metadata=self._metadata({**(metadata or {}), "latency_ms": round(latency_ms, 2)}),
             )
-            generation.end(output=completion, usage=usage or {}, cost_details=cost_details)
+            generation.end(output=completion, usage=usage_details or usage or {}, cost_details=normalized_cost_details)
         except Exception:
             return
+
+    def sync_prompt(
+        self,
+        *,
+        name: str,
+        version_label: str,
+        system: str,
+        user_template: str,
+        config: dict[str, Any] | None = None,
+    ) -> Any:
+        client = self.client()
+        if client is None:
+            return None
+        try:
+            return client.get_prompt(name, label=version_label, type="chat", cache_ttl_seconds=300)
+        except Exception:
+            pass
+        try:
+            prompt = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_template},
+            ]
+            return client.create_prompt(
+                name=name,
+                prompt=prompt,
+                labels=[version_label, "production"],
+                tags=[self.settings.langfuse_project, "finpilot"],
+                type="chat",
+                config=config or {},
+                commit_message=f"Sync {name} {version_label} from FinPilot runtime",
+            )
+        except Exception:
+            return None
 
     def score_current_trace(
         self,
@@ -198,6 +233,26 @@ class FinPilotTracer:
             "project": self.settings.langfuse_project,
             "prompt_version": self.settings.prompt_version,
             **(metadata or {}),
+        }
+
+    def _usage_details(self, usage: dict[str, Any] | None) -> dict[str, int]:
+        payload = usage or {}
+        input_tokens = payload.get("input") or payload.get("input_tokens") or payload.get("prompt_tokens") or 0
+        output_tokens = payload.get("output") or payload.get("output_tokens") or payload.get("completion_tokens") or 0
+        total_tokens = payload.get("total") or payload.get("total_tokens") or int(input_tokens or 0) + int(output_tokens or 0)
+        return {
+            "input": int(input_tokens or 0),
+            "output": int(output_tokens or 0),
+            "total": int(total_tokens or 0),
+        }
+
+    def _cost_details(self, cost_details: dict[str, float] | None) -> dict[str, float] | None:
+        if not cost_details:
+            return None
+        return {
+            "input": float(cost_details.get("input") or 0),
+            "output": float(cost_details.get("output") or 0),
+            "total": float(cost_details.get("total") or 0),
         }
 
 

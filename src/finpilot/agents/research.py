@@ -158,6 +158,19 @@ class InvestmentResearchAgent:
             ],
         }
         tracer = FinPilotTracer(self.settings)
+        langfuse_prompt = tracer.sync_prompt(
+            name=prompt_template.name,
+            version_label=prompt_template.version,
+            system=prompt_template.system,
+            user_template=prompt_template.task,
+            config={
+                "rules": prompt_template.rules,
+                "output_schema": prompt_template.output_schema,
+                "model": self.settings.bedrock_model_id,
+                "temperature": request_body["temperature"],
+                "max_tokens": request_body["max_tokens"],
+            },
+        )
         start = time.perf_counter()
         response = client.invoke_model(
             modelId=self.settings.bedrock_model_id,
@@ -171,7 +184,8 @@ class InvestmentResearchAgent:
         usage = body.get("usage", {})
         input_tokens = usage.get("input_tokens") or 0
         output_tokens = usage.get("output_tokens") or 0
-        estimated_cost_usd = self._estimated_llm_cost(input_tokens, output_tokens)
+        cost_details = self._estimated_llm_cost_details(input_tokens, output_tokens)
+        estimated_cost_usd = cost_details["total"]
         log_event(
             "finpilot_llm_call",
             {
@@ -185,6 +199,9 @@ class InvestmentResearchAgent:
                 "output_tokens": output_tokens,
                 "total_tokens": input_tokens + output_tokens,
                 "estimated_cost_usd": estimated_cost_usd,
+                "cost_per_query_usd": estimated_cost_usd,
+                "input_cost_usd": cost_details["input"],
+                "output_cost_usd": cost_details["output"],
             },
             self.settings,
         )
@@ -205,24 +222,34 @@ class InvestmentResearchAgent:
                 prompt=request_body,
                 completion=text,
                 usage={
-                    "input": input_tokens,
-                    "output": output_tokens,
-                    "total": input_tokens + output_tokens,
-                    "unit": "TOKENS",
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
                 },
                 latency_ms=latency_ms,
-                cost_details={"total": estimated_cost_usd} if estimated_cost_usd else None,
+                cost_details=cost_details if estimated_cost_usd else None,
+                prompt_client=langfuse_prompt,
+                version=prompt_template.version,
                 metadata={
                     "provider": "aws-bedrock",
                     "prompt_name": prompt_template.name,
                     "prompt_version": prompt_template.version,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                    "input_cost_usd": cost_details["input"],
+                    "output_cost_usd": cost_details["output"],
+                    "estimated_cost_usd": estimated_cost_usd,
+                    "cost_per_query_usd": estimated_cost_usd,
                 },
             )
         return json.loads(text)
 
-    def _estimated_llm_cost(self, input_tokens: int, output_tokens: int) -> float:
-        return round(
-            ((input_tokens / 1000) * self.settings.llm_input_cost_per_1k_usd)
-            + ((output_tokens / 1000) * self.settings.llm_output_cost_per_1k_usd),
-            6,
-        )
+    def _estimated_llm_cost_details(self, input_tokens: int, output_tokens: int) -> dict[str, float]:
+        input_cost = (input_tokens / 1000) * self.settings.llm_input_cost_per_1k_usd
+        output_cost = (output_tokens / 1000) * self.settings.llm_output_cost_per_1k_usd
+        return {
+            "input": round(input_cost, 6),
+            "output": round(output_cost, 6),
+            "total": round(input_cost + output_cost, 6),
+        }

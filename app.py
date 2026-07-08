@@ -37,7 +37,7 @@ from finpilot.core.models import InvestmentReport
 from finpilot.core.settings import Settings
 
 
-REQUIRED_BACKEND_VERSION = 3
+REQUIRED_BACKEND_VERSION = 4
 
 
 st.set_page_config(page_title="FinPilot", page_icon=":chart_with_upwards_trend:", layout="wide")
@@ -211,7 +211,7 @@ if "chat_memory_messages" not in st.session_state:
     st.session_state.chat_memory_messages = {}
 chat_store = build_chat_store(settings.rds_database_url, st.session_state.chat_memory_messages)
 
-tabs = st.tabs(["Research", "Evidence", "Invest", "Portfolio", "Market Today", "Chat"])
+tabs = st.tabs(["Research", "Evidence", "Invest", "Portfolio", "Market Today", "Chat", "Observability"])
 
 
 def format_money(value: float | None, currency: str) -> str:
@@ -466,9 +466,99 @@ def render_chat_tab() -> None:
                 st.error(f"Could not answer chat question: {exc}")
 
 
+def render_observability_tab() -> None:
+    with tabs[6]:
+        st.subheader("Observability")
+        st.caption("Operational metrics are published to Langfuse and mirrored here for quick review.")
+
+        refresh_col, quality_col, _ = st.columns([1, 1.4, 4])
+        refresh_clicked = refresh_col.button("Refresh Metrics", use_container_width=True, key="observability_refresh")
+        publish_quality_clicked = quality_col.button(
+            "Publish Quality Scores",
+            use_container_width=True,
+            key="observability_publish_quality",
+        )
+
+        if refresh_clicked or "observability_snapshot" not in st.session_state:
+            try:
+                response = requests.get(f"{finpilot_api_url.rstrip('/')}/observability/metrics", timeout=30)
+                raise_for_backend_error(response)
+                st.session_state.observability_snapshot = response.json()["data"]
+                st.session_state.observability_error = None
+            except Exception as exc:
+                st.session_state.observability_error = str(exc)
+
+        if publish_quality_clicked:
+            try:
+                with st.spinner("Publishing RAGAS-style quality scores to Langfuse..."):
+                    response = requests.post(
+                        f"{finpilot_api_url.rstrip('/')}/observability/publish-quality-scores",
+                        timeout=120,
+                    )
+                    raise_for_backend_error(response)
+                    st.session_state.observability_quality = response.json()["data"]
+                    st.session_state.observability_quality_error = None
+            except Exception as exc:
+                st.session_state.observability_quality_error = str(exc)
+
+        if st.session_state.get("observability_error"):
+            st.error(f"Could not load observability metrics: {st.session_state.observability_error}")
+            return
+
+        snapshot = st.session_state.get("observability_snapshot")
+        if not snapshot:
+            st.info("No observability metrics have been recorded yet.")
+            return
+
+        metric_cols = st.columns(5)
+        metric_cols[0].metric("Requests", snapshot.get("request_volume", 0))
+        metric_cols[1].metric("Avg latency / request", f"{snapshot.get('average_latency_ms', 0):,.0f} ms")
+        metric_cols[2].metric("Avg cost / request", f"${snapshot.get('average_cost_per_request_usd', 0):.8f}")
+        metric_cols[3].metric("Error rate", f"{snapshot.get('error_rate', 0):.2%}")
+        metric_cols[4].metric("Tokens", f"{snapshot.get('llm_total_tokens', 0):,}")
+
+        secondary_cols = st.columns(4)
+        secondary_cols[0].metric("LLM calls", snapshot.get("llm_call_count", 0))
+        secondary_cols[1].metric("LLM total cost", f"${snapshot.get('llm_total_cost_usd', 0):.8f}")
+        secondary_cols[2].metric("P50 latency", f"{snapshot.get('p50_latency_ms', 0):,.0f} ms")
+        secondary_cols[3].metric("P95 latency", f"{snapshot.get('p95_latency_ms', 0):,.0f} ms")
+
+        if st.session_state.get("observability_quality_error"):
+            st.error(f"Could not publish quality scores: {st.session_state.observability_quality_error}")
+        quality = st.session_state.get("observability_quality")
+        if quality:
+            ragas = quality.get("summary", {}).get("ragas", {})
+            st.markdown("#### Published quality scores")
+            quality_cols = st.columns(4)
+            quality_cols[0].metric("Faithfulness", f"{ragas.get('faithfulness', 0):.2%}")
+            quality_cols[1].metric("Answer relevance", f"{ragas.get('answer_relevancy', 0):.2%}")
+            quality_cols[2].metric("Context precision", f"{ragas.get('context_precision', 0):.2%}")
+            quality_cols[3].metric("Context recall", f"{ragas.get('context_recall', 0):.2%}")
+
+        recent_events = snapshot.get("recent_events") or []
+        if recent_events:
+            st.markdown("#### Recent events")
+            st.dataframe(pd.DataFrame(recent_events), use_container_width=True, hide_index=True)
+
+        agent_latency = snapshot.get("average_latency_by_agent") or {}
+        if agent_latency:
+            st.markdown("#### Average latency by agent")
+            agent_df = pd.DataFrame(
+                [{"Agent": agent, "Average latency ms": latency} for agent, latency in agent_latency.items()]
+            )
+            st.bar_chart(agent_df, x="Agent", y="Average latency ms")
+
+        routes = snapshot.get("routes") or {}
+        if routes:
+            st.markdown("#### Routes")
+            route_rows = [{"Route": route, **values} for route, values in routes.items()]
+            st.dataframe(pd.DataFrame(route_rows), use_container_width=True, hide_index=True)
+
+
 render_portfolio_tab()
 render_market_today_tab()
 render_chat_tab()
+render_observability_tab()
 
 if not search_query:
     with tabs[0]:

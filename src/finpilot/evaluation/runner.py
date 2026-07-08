@@ -230,18 +230,19 @@ def _publish_langfuse_scores(payload: dict[str, Any]) -> None:
         metadata={"source": "quality_evaluation", "generated_at": payload["generated_at"]},
     ):
         langfuse_score_names = {
-            "faithfulness": "ragas_faithfulness",
-            "answer_relevancy": "ragas_answer_relevance",
-            "context_precision": "ragas_context_precision",
-            "context_recall": "ragas_context_recall",
+            "faithfulness": ("faithfulness", "ragas_faithfulness"),
+            "answer_relevancy": ("answer_relevance", "ragas_answer_relevance"),
+            "context_precision": ("context_precision", "ragas_context_precision"),
+            "context_recall": ("context_recall", "ragas_context_recall"),
         }
-        for metric, score_name in langfuse_score_names.items():
-            tracer.score_current_trace(
-                score_name,
-                summary["ragas"][metric],
-                comment=f"RAGAS-style {metric} score.",
-                metadata={"score_family": "ragas"},
-            )
+        for metric, score_names in langfuse_score_names.items():
+            for score_name in score_names:
+                tracer.score_current_trace(
+                    score_name,
+                    summary["ragas"][metric],
+                    comment=f"RAGAS-style {metric} score.",
+                    metadata={"score_family": "ragas"},
+                )
     tracer.flush()
 
 
