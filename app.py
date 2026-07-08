@@ -211,7 +211,15 @@ if "chat_memory_messages" not in st.session_state:
     st.session_state.chat_memory_messages = {}
 chat_store = build_chat_store(settings.rds_database_url, st.session_state.chat_memory_messages)
 
-tabs = st.tabs(["Research", "Evidence", "Invest", "Portfolio", "Market Today", "Chat", "Observability"])
+TAB_OPTIONS = ["Research", "Evidence", "Invest", "Portfolio", "Market Today", "Chat", "Observability"]
+active_tab = st.radio(
+    "Section",
+    TAB_OPTIONS,
+    horizontal=True,
+    label_visibility="collapsed",
+    key="active_section",
+)
+tabs = [st.container() for _ in TAB_OPTIONS]
 
 
 def format_money(value: float | None, currency: str) -> str:
@@ -555,15 +563,21 @@ def render_observability_tab() -> None:
             st.dataframe(pd.DataFrame(route_rows), use_container_width=True, hide_index=True)
 
 
-render_portfolio_tab()
-render_market_today_tab()
-render_chat_tab()
-render_observability_tab()
+if active_tab == "Portfolio":
+    render_portfolio_tab()
+elif active_tab == "Market Today":
+    render_market_today_tab()
+elif active_tab == "Chat":
+    render_chat_tab()
+elif active_tab == "Observability":
+    render_observability_tab()
 
 if not search_query:
-    with tabs[0]:
+    if active_tab == "Research":
         st.info("Select a market and enter a ticker or company name to run research.")
-    with tabs[2]:
+    elif active_tab == "Evidence":
+        st.info("Run research first to view supporting evidence.")
+    elif active_tab == "Invest":
         st.info("Select a market and enter a ticker or company name in Research Setup to preview an investment order.")
     st.stop()
 
@@ -608,7 +622,7 @@ profile = research_payload["profile"]
 earnings = research_payload["earnings"]
 news_items = research_payload["news_items"]
 
-with tabs[0]:
+if active_tab == "Research":
     st.subheader(f"{profile['name']} ({report.ticker}) Realtime Research")
     if resolved_symbol["query"].strip().upper() != report.ticker:
         st.caption(
@@ -699,7 +713,7 @@ with tabs[0]:
         st.metric("Suggested Allocation", f"{report.suggested_allocation:.1%}")
         st.write(report.investment_summary)
 
-with tabs[1]:
+if active_tab == "Evidence":
     st.subheader("Supporting Evidence")
     evidence_df = pd.DataFrame([e.model_dump() for e in report.evidence])
     st.dataframe(evidence_df, use_container_width=True, hide_index=True)
@@ -713,7 +727,7 @@ with tabs[1]:
                 for item in finding.evidence:
                     st.write(f"- {item.title} ({item.source})")
 
-with tabs[2]:
+if active_tab == "Invest":
     st.subheader("Invest")
     if selected_market == "India":
         st.warning("Orders are sent to Groww only when Groww account details are configured and the order is confirmed.")
